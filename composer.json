@@ -1,5 +1,20 @@
 {
-  "minimum-stability": "dev",
+  "name" : "jakulov/captcha-protector",
+  "type": "captcha",
+  "description": "Universal captcha protector",
+  "keywords": ["captcha", "spam", "bot", "brute-force"],
+  "homepage": "https://github.com/jakulov/captcha-protector",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Yakov Akulov",
+      "email": "jakulov@gmail.com",
+      "homepage": "http://cp.jakulov.ru/"
+    }
+  ],
+  "require": {
+    "php": ">=5.4.0"
+  },
   "require": {
     "gregwar/captcha": "dev-master"
   },
