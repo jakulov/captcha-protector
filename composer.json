@@ -1,0 +1,11 @@
+{
+  "minimum-stability": "dev",
+  "require": {
+    "gregwar/captcha": "dev-master"
+  },
+  "autoload": {
+    "psr-4": {
+      "CaptchaProtector\\": "src/CaptchaProtector"
+    }
+  }
+}

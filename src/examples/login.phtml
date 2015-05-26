@@ -1,0 +1,80 @@
+<h1 class="cover-heading">Protect Login Form</h1>
+<p class="lead">
+    This is a live example of protected form. You have 3 attempts to login,
+    than you will need to resolve captcha for submitting a form.
+</p>
+<?php
+    $successLogin = false;
+    $error = '';
+    $storageDir = __DIR__ .'/../../var';
+    $attemptsLimit = 3;
+    $leftAttempts = $attemptsLimit + 1;
+    $protector = new \CaptchaProtector\Protector($storageDir, $attemptsLimit);
+    if($_SERVER['REQUEST_METHOD'] === 'POST') {
+        // submitted form
+        $protector->protect('POST /?page=login');
+        if($protector->isNeedCaptcha() && $protector->isCaptchaShown()) {
+            $captchaInput = isset($_POST['captcha']) ? $_POST['captcha'] : '';
+            if($protector->isCaptchaResolved($captchaInput)) {
+                if(true) {
+                    $protector->forgive('POST /?page=login');
+                    $successLogin = true;
+                }
+            }
+            else {
+                $error = 'Invalid text from picture';
+            }
+        }
+        else {
+            $error = 'Invalid password or something else, whatever. Try again';
+            $leftAttempts = $attemptsLimit - $protector->getRequestCount() + 1;
+            if($leftAttempts <= $attemptsLimit && $leftAttempts) {
+                $error .= '. Attempts left: '. $leftAttempts;
+            }
+        }
+    }
+?>
+<form class="form form-horizontal" method="post">
+
+    <?php if($error):?>
+        <div class="alert alert-danger"><?php echo $error?></div>
+    <?php elseif($successLogin):?>
+        <div class="alert alert-success">You've passed the test! <a href="./?page=login">Try again</a></div>
+    <?php endif?>
+
+    <?php if(!$successLogin):?>
+        <div class="form-group">
+            <label class="col col-sm-4" for="login">Login:</label>
+            <div class="col col-sm-8">
+                <input type="text" value="" required id="login" name="login" class="form-control">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="col col-sm-4" for="password">Password:</label>
+            <div class="col col-sm-8">
+                <input type="password" value="" required id="password" name="password" class="form-control">
+            </div>
+        </div>
+        <?php if($protector->isNeedCaptcha()):?>
+            <div class="form-group">
+                <label class="col col-sm-4" for="captcha">
+                    <img src="<?php echo $protector->getCaptcha(150, 50)?>">
+                </label>
+                <div class="col col-sm-8">
+                    <input type="text" value="" required id="captcha" name="captcha" class="form-control" placeholder="Enter text from the image">
+                </div>
+            </div>
+        <?php endif?>
+        <div class="form-group">
+            <label class="col col-sm-4"> </label>
+            <div class="col col-sm-8">
+                <input type="submit" value="Log In" class="btn btn-info btn-block">
+            </div>
+        </div>
+    <?php endif?>
+</form>
+<hr>
+<p class="lead">
+    <a class="btn btn-lg btn-default" href="#code">See code above &darr;</a>
+</p>
+
