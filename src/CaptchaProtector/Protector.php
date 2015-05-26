@@ -97,8 +97,9 @@ class Protector
                 $info[$this->request][] = time();
             }
             $actualRequests = [];
+            $actualTime = time() - $this->timeLimit;
             foreach($info[$this->request] as $time) {
-                if($time > $this->timeLimit) {
+                if($time > $actualTime) {
                     $this->requestCount++;
                     $actualRequests[] = $time;
                 }
