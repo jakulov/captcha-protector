@@ -25,6 +25,8 @@ class Protector
     /** @var int */
     protected $requestLimit = 0;
     /** @var int */
+    protected $timeLimit;
+    /** @var int */
     protected $requestCount = 0;
     /** @var CaptchaBuilder */
     protected $captchaBuilder;
@@ -42,11 +44,13 @@ class Protector
     /**
      * @param string $storageDir
      * @param int $requestLimit
+     * @param int|null $timeLimit
      */
-    public function __construct($storageDir = '/tmp', $requestLimit = 3)
+    public function __construct($storageDir = '/tmp', $requestLimit = 3, $timeLimit = null)
     {
         $this->storageDir = $storageDir .'/captcha_protector';
         $this->requestLimit = $requestLimit;
+        $this->timeLimit = $timeLimit;
     }
 
     /**
@@ -66,23 +70,52 @@ class Protector
         $this->request = $request;
 
         $clientIp = $this->getClientIp();
-        $info = $this->getClientInfo($clientIp);
-        if(!isset($info[$request])) {
-            $info[$request] = 1;
-        }
-        else {
-            $info[$request] += 1;
-        }
-
+        $info = $this->processClientInfo($this->getClientInfo($clientIp));
         $this->setClientInfo($clientIp, $info);
 
-        $this->requestCount = $info[$request];
         $this->needCaptcha = $this->requestCount > $this->requestLimit;
         if($this->needCaptcha) {
             $this->captchaShown = $this->requestCount - $this->requestLimit === 1 ? false : true;
         }
 
         return $this;
+    }
+
+    /**
+     * @param $info
+     * @return mixed
+     */
+    protected function processClientInfo($info)
+    {
+        if($this->timeLimit !== null) {
+            if(!isset($info[$this->request])) {
+                $info[$this->request] = [
+                    time()
+                ];
+            }
+            else {
+                $info[$this->request][] = time();
+            }
+            $actualRequests = [];
+            foreach($info[$this->request] as $time) {
+                if($time > $this->timeLimit) {
+                    $this->requestCount++;
+                    $actualRequests[] = $time;
+                }
+            }
+            $info[$this->request] = $actualRequests;
+        }
+        else {
+            if(!isset($info[$this->request])) {
+                $info[$this->request] = 1;
+            }
+            else {
+                $info[$this->request] += 1;
+            }
+            $this->requestCount = $info[$this->request];
+        }
+
+        return $info;
     }
 
     /**
@@ -112,9 +145,11 @@ class Protector
         $clientIp = $this->getClientIp();
         $info = $this->getClientInfo($clientIp);
         if(isset($info[$request])) {
-            $info[$request] = 0;
+            $info[$request] = $this->timeLimit === null ? 0 : [];
             $this->setClientInfo($clientIp, $info);
         }
+
+        $this->needCaptcha = false;
 
         return $this;
     }

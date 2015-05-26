@@ -1,0 +1,77 @@
+<h1 class="cover-heading">Protect Search Form</h1>
+<p class="lead">
+    This is a live example of protected search form.<br> You have 5 queries limit per minute,
+    than you will need to resolve captcha to complete search request.
+</p>
+<?php
+$error = '';
+$processSearch = false;
+$storageDir = __DIR__ .'/../../var';
+$attemptsLimit = 5;
+$timeLimit = 60;
+$leftAttempts = $attemptsLimit;
+$protector = new \CaptchaProtector\Protector($storageDir, $attemptsLimit, $timeLimit);
+if(isset($_GET['query']) && $_GET['query']) {
+    // submitted form
+    $processSearch = true;
+    $protector->protect('GET /?page=search');
+    if($protector->isNeedCaptcha() && $protector->isCaptchaShown()) {
+        $captchaInput = isset($_GET['captcha']) ? $_GET['captcha'] : '';
+        if($protector->isCaptchaResolved($captchaInput)) {
+            $protector->forgive('GET /?page=search');
+        }
+        else {
+            $processSearch = false;
+            $error = 'Invalid text from picture';
+        }
+    }
+    else {
+        $leftAttempts = $attemptsLimit - $protector->getRequestCount() + 1;
+    }
+}
+?>
+<form class="form form-horizontal" method="get">
+    <input type="hidden" name="page" value="search">
+    <?php if($error):?>
+        <div class="alert alert-danger"><?php echo $error?></div>
+    <?php endif?>
+
+    <div class="form-group">
+        <div class="col col-sm-10">
+            <input type="text" value="<?php if($error) echo htmlentities($_GET['query']);?>" required id="query" name="query" class="form-control" placeholder="Search...">
+        </div>
+        <div class="col col-sm-2">
+            <input type="submit" class="btn btn-info" value="Search">
+        </div>
+    </div>
+    <?php if($protector->isNeedCaptcha()):?>
+        <div class="form-group">
+            <div class="col col-sm-6">
+                <input autofocus type="text" value="" required id="captcha" name="captcha" class="form-control" placeholder="Enter text from the image">
+            </div>
+            <label class="col col-sm-4" for="captcha">
+                <img src="<?php echo $protector->getCaptcha(150, 50)?>">
+            </label>
+        </div>
+    <?php endif?>
+</form>
+<?php if($processSearch):?>
+<div style="text-align: left">
+    <ul>
+        <b>Results for: "<?php echo $_GET['query']?>"</b>
+        <li>Search result 1</li>
+        <li>Search result 2</li>
+        <li>Search result 3</li>
+    </ul>
+    <?php if ($leftAttempts):?>
+        <div class="alert alert-info">
+            You have <?php echo $leftAttempts?> attempts
+        </div>
+    <?endif?>
+</div>
+<?php endif?>
+<hr>
+<p class="lead">
+    <a class="btn btn-lg btn-default" href="#code">See code above &darr;</a>
+</p>
+

@@ -1,0 +1,36 @@
+<a name="code"></a>
+<div class="code-container">
+    <p class="lead">
+        The code of example is really simple, you can find the full code at
+        <a target="_blank" href="http://github.com/jakulov/captcha-protector">github.com/jakulov/captcha-protector</a>.
+    </p>
+    <p>Here, I'll show the principals:</p>
+<pre><code>
+<?php echo
+htmlentities("// init protector
+\$timeLimit = 60; //seconds
+\$protector = new \\CaptchaProtector\\Protector(\$storageDir, \$attemptsLimit, \$timeLimit);
+
+// run when you need to protect the script (i.e. form submit)
+\$protector->protect('GET /?page=search');
+
+// detect if user should resolve captcha
+if(\$protector->isNeedCaptcha() && \$protector->isCaptchaShown()) {...}
+
+// detect the user has resolved captcha
+if(\$protector->isCaptchaResolved(\$captchaInput)) {...}
+
+// show captcha, when needed
+if(\$protector->isNeedCaptcha()) echo \"<img src='\$protector->getCaptcha(150, 50)'>\";
+
+// how many attepmts user done
+\$protector->getRequestCount();
+
+// set attempts counter to null
+\$protector->forgive('GET /?page=search');
+
+")?>
+    </code></pre>
+    <hr>
+    <p>&nbsp;</p>
+</div>
