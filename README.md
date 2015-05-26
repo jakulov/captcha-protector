@@ -16,10 +16,13 @@ The code of examples can be found in this repo: [src/examples](https://github.co
 You can run examples on your machine, if you have installed PHP.
 To do this, just clone this repo. Than in console do:
 
+    composer install
     cd app
     php -S localhost:8000
 
 And now open [http://localhost:8000/app/](http://localhost:8000/app/)
+
+If you don't have composer, visit [https://getcomposer.org/download/](https://getcomposer.org/download/)
 
 # TODO
 1. Request new captcha image without page reload
