@@ -20,7 +20,7 @@ To do this, just clone this repo. Than in console do:
     cd app
     php -S localhost:8000
 
-And now open [http://localhost:8000/app/](http://localhost:8000/app/)
+And now open [http://localhost:8000/app/](http://localhost:8000/)
 
 If you don't have composer, visit [https://getcomposer.org/download/](https://getcomposer.org/download/)
 
