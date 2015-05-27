@@ -1,0 +1,394 @@
+<p>Одна из нетривиальных задач в реализации надежного и комфортного в поддержке веб-проекта &ndash; защита и ограничние принимаемых от пользователей данных.</p>
+<p>Часто для этого применяется механизм защиты с помошью captcha (каптчи) [Completely Automated Public Turing test to tell Computers and Humans Apart]. Изначально задача каптчи &ndash; это защита от ввода данных с помощью компьюетра с использование специально обученного скрипта. И в большинстве случаев &ndash; это достаточно надежный механизм. Механизму сто лет в обед, поэтому статья, конечно посвящена не написанию очередног генератора каптч. <br><br>
+    Здесь я попробую решить попутную, достаточно занудную задачу &ndash; как определить, что к нам начал "стучаться" робот, а не обычный человек. Ведь мы не хотим лишний раз создавать неудобство своим пользователям и заставлять разгадывать каптчи. Итак, попытка создать универсальный простой механизм для защиты определенных мест в своем PHP-проекте, будь то форма аутентификации или форма обратной связи.</p>
+<p><img src="https://pp.vk.me/c623719/v623719217/35050/tWENgtUYuxw.jpg" alt="Universal captcha protector. PHP каптча"></p>
+
+
+<hr>
+<h2>Подготовка</h2>
+<hr>
+<p>1. Для начала, берем удобный генератор каптч, для этого я просто иду на <a href="https://packagist.org/search/?q=captcha" target="_blank">Packagist.org</a>, и ввожу в поиск "Captcha". Беру самый популярный пакет, читаю документацию &ndash; все ОК, беру.</p>
+<p>2. Ставим <a target="_blank" href="https://getcomposer.org/download">composer</a>, если еще нет. Идем в консоль, создаем директорию проекта и пишем в ней:
+    <br>
+    <code>
+        curl -sS https://getcomposer.org/installer | php
+    </code>
+    <br>
+    <code>
+        ./composer.phar require gregwar/captcha:1.1
+    </code>
+</p>
+<p>3. Далее создаем описание нашего проекта в появившемся файле composer.json:
+</p>
+<pre><code>
+{
+  "name" : "jakulov/captcha-protector",
+  "type": "captcha",
+  "description": "Universal captcha protector",
+  "keywords": ["captcha", "spam", "bot", "brute-force"],
+  "homepage": "https://github.com/jakulov/captcha-protector",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Yakov Akulov",
+      "email": "jakulov@gmail.com",
+      "homepage": "http://jakulov.ru/"
+    }
+  ],
+  "require": {
+    "php": ">=5.4.0",
+    "gregwar/captcha": "dev-master"
+  },
+  "autoload": {
+    "psr-4": {
+      "CaptchaProtector\\": "src/CaptchaProtector"
+    }
+  }
+}
+</code></pre>
+
+<p>4. Теперь создаем директорию для исходного кода библиотеки: src/CaptchaProtector. В ней заводим класс Protector в файле Protector.php.</p>
+<pre><code class="php">
+&lt;?php
+namespace CaptchaProtector;
+
+use Gregwar\Captcha\CaptchaBuilder;
+
+/**
+ * Class Protector
+ * @package CaptchaProtector
+ */
+class Protector
+{
+    /** @var string Директория для хранения временных данных */
+    protected $storageDir;
+    /** @var bool Флаг необходмости показа каптчи */
+    protected $needCaptcha = false;
+    /** @var bool Флаг того, что каптча показана пользователю */
+    protected $captchaShown = false;
+    /** @var int Лимит запросов от одного пользователя в защищенную зону */
+    protected $requestLimit = 0;
+    /** @var int Лимит времени, в который действуюет лимит на кол-во запросов (сек) */
+    protected $timeLimit; // 0 - по времени не ограничивается
+    /** @var int Счетчик запросов пользователя в защищенную зону */
+    protected $requestCount = 0;
+    /** @var CaptchaBuilder Инкапсулированный объект генератора каптчи */
+    protected $captchaBuilder;
+    /** @var string Кука, в которой будем хранить идентификатор показанной каптчи */
+    public $captchaCookieName = 'captcha_protector';
+    /** @var int Частота запуска (% запросов) сборщика мусора, для очистки временной директории */
+    public $gcFrequency = 10;
+    /** @var string Именование защищаемой зоны (обычно HTTP_METHOD + URI) */
+    protected $request;
+    /** @var int Время жизни информации о пользователи (сек) */
+    public $clientInfoExpires = 3600;
+    /** @var int Время жизни информации о показанной куке (сек) */
+    public $captchaInfoExpires = 3600;
+
+    /**
+     * @param string $storageDir
+     * @param int $requestLimit
+     * @param int|null $timeLimit
+     */
+    public function __construct($storageDir = '/tmp', $requestLimit = 3, $timeLimit = null)
+    {
+        $this->storageDir = $storageDir .'/captcha_protector';
+        $this->requestLimit = $requestLimit;
+        $this->timeLimit = $timeLimit;
+    }
+}
+</code></pre>
+
+
+<hr>
+<h2>Реализация логики защиты</h2>
+<hr>
+<p>5. Пока наш класс "защитник" ничего не делает, это просто каркас. Теперь добавим метод, который мы будем вызывать, когда хотим защитить тот или иной запрос с помощью каптчи. ВАЖНО &ndash; остальные функции протектора не будут работать до вызова метода protect</p>
+<pre><code class="php">&lt;php
+    /**
+     * @param null|string $request Имя защищаемой зоны
+     * @return $this
+     */
+    public function protect($request = null)
+    {
+        if($request === null) {
+            // если имя не задано, формируем его на основе
+            $uri = $_SERVER['REQUEST_METHOD'] . '/ ' . $_SERVER['REQUEST_URI'];
+            $request = explode('?', $uri)[0];
+        }
+
+        if(!$request) {
+            // имя защищаемой зоны не может быть пустым
+            throw new \RuntimeException('Unable to protect empty request: '. var_export($request, true));
+        }
+        $this->request = $request; // сохраняем имя для последующего использования
+
+        $clientIp = $this->getClientIp(); // получаем максимально реальный ip пользования
+        $info = $this->processClientInfo($this->getClientInfo($clientIp)); // собираем информацию о посетителе
+        $this->setClientInfo($clientIp, $info); // сохраняем обновленную информацию о пользователе
+
+        // если превышен лимит запросов, ставим флаг, что нужна каптча
+        $this->needCaptcha = $this->requestCount > $this->requestLimit;
+        if($this->needCaptcha) {
+            // флаг показа каптчи ставится только если это не первое достижение лимита запросов
+            $this->captchaShown = $this->requestCount - $this->requestLimit === 1 ? false : true;
+        }
+
+        return $this;
+    }
+</code></pre>
+
+<p>6. Реализуем функции получения IP клиента и сбора информации о запросах клиента.</p>
+<pre><code class="php">&lt;php
+    /**
+     * Честно спи жена со stackoverflow
+     * @return string
+     */
+    public function getClientIp()
+    {
+        $client  = isset($_SERVER['HTTP_CLIENT_IP']) ? $_SERVER['HTTP_CLIENT_IP'] : '';
+        $forward = isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? $_SERVER['HTTP_X_FORWARDED_FOR'] : '';
+        $remote  = $_SERVER['REMOTE_ADDR'];
+
+        if(filter_var($client, FILTER_VALIDATE_IP)) {
+            $ip = $client;
+        }
+        elseif(filter_var($forward, FILTER_VALIDATE_IP)) {
+            $ip = $forward;
+        }
+        else {
+            $ip = $remote;
+        }
+
+        return $ip;
+    }
+
+    /**
+     * Когда имеем ip можем загрузить информацию о клиенте
+     * @param $ip
+     * @return array
+     */
+    public function getClientInfo($ip)
+    {
+        $file = $this->getClientFilename($ip); // получаем имя файла, в котором храним данные
+        if(!file_exists($file)) {
+            if(!is_dir(dirname($file))) {
+                if(!mkdir(dirname($file), 0777, true)) {
+                    throw new \RuntimeException('Unable to create storage dir: '. $this->storageDir);
+                }
+            }
+            // если файла еще нет - создаем новый с пустым массивом данных
+            file_put_contents($file, json_encode([]));
+        }
+
+        // данные храним в json, работаем с массивом
+        $info = file_get_contents($file);
+        $json = json_decode($info, true);
+
+        return $json ? $json : [];
+    }
+
+    /**
+     * Процесс защиты
+     * @param $info информация о запросах клиента
+     * @return mixed
+     */
+    protected function processClientInfo($info)
+    {
+        if($this->timeLimit !== null) {
+            // если импользовано ограничение на кол-во запросо в период времени
+            if(!isset($info[$this->request])) {
+                // если запросов еще не было в эту зону - создаем массив данных
+                $info[$this->request] = [
+                    time()
+                ];
+            }
+            else {
+                // иначе добавляем новый элемент
+                $info[$this->request][] = time();
+            }
+            // данные о запросах клиента сохраняем в виде массива UNIX-таймстампов времени запроса
+            // так удобно получить кол-во запросов на установленный период времени
+            $actualRequests = [];
+            $actualTime = time() - $this->timeLimit;
+            foreach($info[$this->request] as $time) {
+                if($time > $actualTime) {
+                    $this->requestCount++; // в счетчик запросов идут только запросы за заданные период времени
+                    $actualRequests[] = $time;
+                }
+            }
+            // не актуальные по времени запросы удаляются из истории, оставляем актульальные
+            $info[$this->request] = $actualRequests;
+        }
+        else {
+            // если ограничения по времени нет, то все проще
+            if(!isset($info[$this->request])) {
+                $info[$this->request] = 1;
+            }
+            else {
+                $info[$this->request] += 1;
+            }
+            // просто инкрементируем счетчик запросов и все
+            $this->requestCount = $info[$this->request];
+        }
+
+        return $info;
+    }
+</code></pre>
+
+<p>7. По сути, основная логика защиты уже реализована - осталось добавить несколько вспомогательных методов</p>
+<pre><code class="php">&lt;php
+    /**
+     * Сохранение обработанной информации о запросах клиента
+     * @param $ip
+     * @param array $info
+     * @return int
+     */
+    public function setClientInfo($ip, $info = [])
+    {
+        if(mt_rand(0, 100) < $this->gcFrequency) {
+            $this->runGC();
+        }
+
+        return file_put_contents($this->getClientFilename($ip), json_encode($info));
+    }
+
+    /**
+     * Получаем контент каптчи для показа картинки
+     * @param $width ширина картинки
+     * @param $height высота
+     * @param null $phrase текст на картинке (можно не задавать - генерится сам)
+     * @param int $quality - качество jpeg)
+     * @return string
+     */
+    public function getCaptcha($width, $height, $phrase = null, $quality = 90)
+    {
+        if($phrase) {
+            $this->getCaptchaBuilder()->setPhrase($phrase);
+        }
+
+        $content = $this->getCaptchaBuilder()->build($width, $height)->inline($quality);
+        $this->saveCaptchaRequest();
+
+        return $content;
+    }
+
+    /**
+     * Сохраняем информацию о показанной каптче
+     * @return int
+     */
+    protected function saveCaptchaRequest()
+    {
+        // получаем имя файла, в котором будем хранить показанную каптчу
+        $file = $this->getCaptchaRequestFile($this->getCaptchaRequestUid());
+        // getCaptchaRequestUid - выдает uid пользователя, сохраненный в куке (если нет куки - генерит новый)
+        if(!is_dir(dirname($file))) {
+            mkdir(dirname($file), 0777, true);
+        }
+
+        return file_put_contents($file, $this->getCaptchaBuilder()->getPhrase());
+    }
+
+    /**
+     * Определяем была ли решена каптча
+     * @param $userInput то, что ввел пользователь
+     * @return bool
+     */
+    public function isCaptchaResolved($userInput)
+    {
+        // читам сохраненную фразу из файла
+        $file = $this->getCaptchaRequestFile($this->getCaptchaRequestUid());
+        if(file_exists($file) && trim($userInput)) {
+            // и сравниваем с вводом пользователя
+            if ($userInput == file_get_contents($file)) {
+                unlink($file);
+                return true;
+            }
+        }
+
+        return false;
+    }
+</code></pre>
+<p>Полный код класса смотрите на GitHub <a href="https://github.com/jakulov/captcha-protector/blob/master/src/CaptchaProtector/Protector.php" target="_blank">https://github.com/jakulov/captcha-protector</a></p>
+
+<hr>
+<h2>Применяем на практике</h2>
+<hr>
+<p>8. Как это все работает? Довольно просто, главно, что разработчику не нужно заботится о муторных процедурах проверки. Просто используюем пару функций из готового класса и все &ndash; твой проект неплохо защищен.</p>
+<p>Теперь создаем директорию app, в ней файл test.php для тестирования написанного кода.
+    В простейшем применении это будет выглять вот так:</p>
+<pre><code class="php">&lt;php
+require_once __DIR__ . '/../vendor/autoload.php'; // погружаем автозагрузчик классов
+
+$successLogin = $processLogin = false; // флаги: аутентификация не пройдена, проводить не надо
+$error = ''; // сообщение об ошибке
+// инициализируем протектор
+$protector = new \CaptchaProtector\Protector(__DIR__ .'/../var', 2);
+$login = $password = 'test'; // "правильные" логин и пароль
+if($_SERVER['REQUEST_METHOD'] === 'POST') { // форма отправлена
+    $processLogin = true; // будем проводить аутентификацию
+    $protector->protect('test'); // запускаем "защиту" формы
+    if($protector->isNeedCaptcha() && $protector->isCaptchaShown()) {
+        // если защитник говорит, что нужна капча и капча была показана
+        // выполняем проверку правильности введенной капчи
+        if($protector->isCaptchaResolved(isset($_POST['captcha']) ? $_POST['captcha'] : '')) {
+            // если капча разгадана - будем проводить аутентификацию
+            $processLogin = true;
+        }
+        else {
+            $processLogin = false;
+            $error = 'Invalid text from picture';
+        }
+    }
+    if($processLogin) {
+        // типа аутентификация
+        if($_POST['login'] === $login && $_POST['password'] === $password) {
+            $protector->forgive('test'); // метод позволяет удалить историю запросов этого пользователя в защищаемую зону
+            $successLogin = true;
+        }
+        else {
+            $error = 'Invalid login or password';
+        }
+    }
+}
+ob_start(); // ставим буфер вывода, т.к. протектор будет использовать setcookie,
+    // и не сможет это сделать, если мы начнем выводить контент раньше этого
+    // далее все понятно - обычная форма. В которой с помощью протектора мы можем вывести капчу.
+?>
+&lt;h1>Test form example.&lt;/h1>
+&lt;p>Form will require captcha after 3 incorrect login attempts.&lt;/p>
+&lt;p>&lt;small>Correct login and password: "test:test"&lt;/small>&lt;/p>
+&lt;?php if($successLogin):?>
+    &lt;p>You've logged in successfully!&lt;/p>
+    &lt;p>&lt;a href="./test.php">Logout&lt;/a>&lt;/p>
+&lt;?php else:?>
+&lt;form method="post">
+    &lt;?php if($error):?>&lt;div style="color: red;">&lt;?php echo $error?>&lt;/div>&lt;?php endif?>
+    &lt;label>Login: &lt;br>&lt;input required type="text" name="login" value="&lt;?php echo ($_POST ? $_POST['login'] : '')?>">&lt;/label>&lt;br>
+    &lt;label>Password: &lt;br>&lt;input required type="password" name="password" value="&lt;?php echo ($_POST ? $_POST['password'] : '')?>">&lt;/label>&lt;br>
+    &lt;?php if($protector->isNeedCaptcha()):?>
+        &lt;img src="&lt;?php echo $protector->getCaptcha(150, 50)?>">&lt;br>
+        &lt;label>Captcha: &lt;br>&lt;input type="text" name="captcha" value="" placeholder="Enter text from image above" required>&lt;/label>
+    &lt;?php endif?>
+    &lt;br>&lt;br>
+    &lt;input type="submit" value="Log In">
+&lt;/form>
+&lt;?php endif?>
+</code></pre>
+
+<p>Запусить данные пример легко. Просто переходим в директорию app нашего проекта. В коносли запускаем PHP-сервер: <code>php -S localhost:8000</code>. Затем идем по ссылке <a href="http://localhost:8000/test.php" target="_blank">http://localhost:8000/test.php</a>. Тестируем пример.</p>
+<p><img src="https://pp.vk.me/c623719/v623719217/35057/7gcmHfcuieY.jpg" alt="Testing captcha"></p>
+
+<hr>
+<p>
+    <a class="btn btn-lg btn-default" href="https://github.com/jakulov/captcha-protector" target="_blank">
+        <i class="glyphicon glyphicon-list"></i>
+        Код на GitHub</a> &nbsp;&nbsp;
+    <a class="btn btn-lg btn-primary" target="_blank" href="https://packagist.org/packages/jakulov/captcha-protector">
+        <i class="glyphicon glyphicon-download"></i>
+        Пакет на Packagist.org</a>
+    &nbsp;&nbsp;
+    <a class="btn btn-lg btn-warning" target="_blank" href="http://cp.jakulov.ru">
+        <i class="glyphicon glyphicon-eye-open"></i>
+        Live Demo</a>
+</p>

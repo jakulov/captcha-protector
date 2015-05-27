@@ -7,13 +7,18 @@ $examples = [
     'index' => 'Home',
     'login' => 'Example 1',
     'search' => 'Example 2',
+    '404' => 'Not found',
 ];
 $page = isset($_GET['page']) && $_GET['page'] ? $_GET['page'] : $defaultPage;
-if(!isset($examples[$page])) {
-    $page = $defaultPage;
+$uri = explode('?', $_SERVER['REQUEST_URI'])[0];
+if(!isset($examples[$page]) || $uri !== '/') {
+    $page = '404';
 }
 $title = $examples[$page];
 
+if($page === '404') {
+    header('HTTP/1.0 404 Not Found');
+}
 ob_start();
 ?>
 <html>
@@ -40,8 +45,9 @@ ob_start();
                     <nav>
                         <ul class="nav masthead-nav">
                             <?php foreach($examples as $e => $name):?>
+                                <?php if ($e === 404) continue;?>
                                 <li <?php if($page === $e):?>class="active"<?php endif?>>
-                                    <a href="./?page=<?php echo $e?>"><?php echo $name?></a>
+                                    <a href="<?php if($e !== $defaultPage):?>./?page=<?php echo $e?><?php else:?>/<?php endif?>"><?php echo $name?></a>
                                 </li>
                             <?php endforeach?>
                         </ul>

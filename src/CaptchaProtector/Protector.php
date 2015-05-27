@@ -1,11 +1,4 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: yakov
- * Date: 26.05.15
- * Time: 23:15
- */
-
 namespace CaptchaProtector;
 
 use Gregwar\Captcha\CaptchaBuilder;
